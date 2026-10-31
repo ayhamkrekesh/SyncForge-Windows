@@ -1,0 +1,5 @@
+1. Upload this ZIP into the root of your existing GitHub Codespace through Explorer > right click > Upload.
+2. Open Codespaces Terminal, paste:
+   unzip -o SyncForge_Windows_GitHub_Build.zip -d . && git add . && git commit -m "Add Windows desktop build" && git push
+3. Go to your GitHub repository > Actions > Build Windows EXE; open newest run, and download artifact SyncForge-Windows.
+4. Extract artifact ZIP completely and double-click SyncForge.exe.
