@@ -243,7 +243,7 @@ def analyze(videos: list[str], audios: list[str], log=None) -> tuple[list[Match]
             alternative = max([second] + [x[0] for x in competitors], default=-1.0)
             if confidence < MIN_CONFIDENCE:
                 raise ValueError(f"Low-confidence waveform match ({confidence:.2f}); no export made.")
-            if alternative > confidence - MIN_MARGIN and confidence < 0.90:
+            if alternative > confidence - MIN_MARGIN:
                 raise ValueError(f"Ambiguous waveform match ({confidence:.2f} vs {alternative:.2f}); no export made.")
             ai = probe(audio)
             overlap = min(vi.duration, offset + ai.duration) - max(0.0, offset)
