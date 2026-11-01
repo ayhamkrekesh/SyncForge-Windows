@@ -121,4 +121,4 @@ def test_bad_input_handling(tmp_path):
         probe(video)
     with pytest.raises(ValueError, match="No synchronized clips"):
         premiere_xml([], tmp_path / "empty.xml")
-    assert safe_name('illegal<>:"*/\\|?name') == "illegal________name"
+    assert safe_name('illegal<>:"*/\\|?name') == "illegal_name"
