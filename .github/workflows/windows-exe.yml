@@ -1,44 +1,71 @@
-name: Build Windows EXE
+name: Test and Build SyncForge Windows
+
 on:
   push:
+    branches: [main, improve-auto-sync]
+  pull_request:
     branches: [main]
   workflow_dispatch:
+
 jobs:
-  build:
+  windows:
     runs-on: windows-latest
     permissions:
       contents: read
+    timeout-minutes: 40
     steps:
-      - name: Checkout
+      - name: Get source code
         uses: actions/checkout@v4
-      - name: Set up Python
+
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
           cache: pip
-      - name: Install Python packages
+
+      - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Download FFmpeg for Windows
+
+      - name: Download FFmpeg and FFprobe
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile ffmpeg.zip
           Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg-download
           New-Item -ItemType Directory -Path bin -Force | Out-Null
           $ffmpeg = Get-ChildItem ffmpeg-download -Filter ffmpeg.exe -Recurse -File | Select-Object -First 1
-          if (-not $ffmpeg) { throw 'ffmpeg.exe was not found in archive' }
+          if (-not $ffmpeg) { throw 'FFmpeg binary missing from archive' }
           Copy-Item $ffmpeg.FullName bin/ffmpeg.exe
           Copy-Item (Join-Path $ffmpeg.DirectoryName 'ffprobe.exe') bin/ffprobe.exe
-      - name: Build Windows desktop app
+          & bin/ffmpeg.exe -version | Select-Object -First 1
+          & bin/ffprobe.exe -version | Select-Object -First 1
+
+      - name: Check source syntax
+        run: python -m compileall -q syncforge.py syncforge_core.py tests
+
+      - name: Test actual audio matching and video exports
+        run: python -m pytest -q tests
+
+      - name: Package standalone Windows desktop app
         run: python -m PyInstaller --noconfirm --clean --onedir --windowed --name SyncForge syncforge.py
-      - name: Bundle FFmpeg
+
+      - name: Bundle FFmpeg beside executable
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist/SyncForge/bin -Force | Out-Null
           Copy-Item bin/ffmpeg.exe dist/SyncForge/bin/ffmpeg.exe
           Copy-Item bin/ffprobe.exe dist/SyncForge/bin/ffprobe.exe
-      - name: Upload Windows app
+
+      - name: Smoke test packaged executable
+        shell: pwsh
+        run: |
+          $app = Start-Process -FilePath 'dist/SyncForge/SyncForge.exe' -ArgumentList '--self-test' -Wait -PassThru
+          if ($app.ExitCode -ne 0) { throw "Packaged executable self-test failed: $($app.ExitCode)" }
+
+      - name: Upload downloadable Windows app
         uses: actions/upload-artifact@v4
         with:
           name: SyncForge-Windows
           path: dist/SyncForge/
+          retention-days: 30
           if-no-files-found: error
