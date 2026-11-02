@@ -9,7 +9,7 @@ import subprocess
 import pytest
 from engine import (
     ai_plan, cues_from_words, ffmpeg, make_ass, mapped_cues, probe, render,
-    validate_timeline
+    validate_timeline, tighten_pauses
 )
 
 
@@ -100,3 +100,29 @@ def test_actual_blur_dissolve_music_export(tmp_path):
     assert output.exists()
     result=probe(output)
     assert result["has_audio"] and result["duration"]<60
+
+
+def test_cut_dead_air_between_words_without_chopping_phrases():
+    words = [
+        {"start":.2,"end":.45,"text":"This"},
+        {"start":.48,"end":.72,"text":"is"},
+        {"start":.8,"end":1.1,"text":"important."},
+        {"start":3.0,"end":3.2,"text":"Here's"},
+        {"start":3.28,"end":3.48,"text":"the"},
+        {"start":3.5,"end":3.95,"text":"answer."},
+    ]
+    plan={"title":"Sample","segments":[{
+        "start":0,"end":4.8,"speed":1.04,"zoom":1.02,"focus_x":.5,
+        "transition":"cut","reason":"Strong speech"
+    }]}
+    improved=tighten_pauses(plan,words)
+    assert len(improved["segments"])==2
+    first,last=improved["segments"]
+    assert first["end"]<1.4
+    assert last["start"]>2.7
+    assert last["end"]<4.3
+    assert last["transition"]=="cut"
+    assert sum(s["end"]-s["start"] for s in improved["segments"])<3.5
+    # Do not touch visual b-roll when speech metadata does not cover it.
+    unchanged=tighten_pauses(plan,[])
+    assert unchanged==plan
