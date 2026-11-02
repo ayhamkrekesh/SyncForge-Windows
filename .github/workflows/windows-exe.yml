@@ -2,7 +2,7 @@ name: Test and Build SyncForge Windows
 
 on:
   push:
-    branches: [main, improve-auto-sync]
+    branches: [main, ui-refresh-v3]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -12,7 +12,7 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: read
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - name: Get source code
         uses: actions/checkout@v4
@@ -40,32 +40,38 @@ jobs:
           & bin/ffmpeg.exe -version | Select-Object -First 1
           & bin/ffprobe.exe -version | Select-Object -First 1
 
-      - name: Check source syntax
-        run: python -m compileall -q syncforge.py syncforge_core.py tests
+      - name: Check Python syntax
+        run: python -m compileall -q syncforge_studio.py syncforge_core.py tests
 
-      - name: Test actual audio matching and video exports
+      - name: Test matching, exports, and Qt interface
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: python -m pytest -q tests
 
-      - name: Package standalone Windows desktop app
-        run: python -m PyInstaller --noconfirm --clean --onedir --windowed --name SyncForge syncforge.py
+      - name: Package modern Windows desktop app
+        run: python -m PyInstaller --noconfirm --clean --onedir --windowed --name SyncForge syncforge_studio.py
 
-      - name: Bundle FFmpeg beside executable
+      - name: Include local FFmpeg and FFprobe
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist/SyncForge/bin -Force | Out-Null
           Copy-Item bin/ffmpeg.exe dist/SyncForge/bin/ffmpeg.exe
           Copy-Item bin/ffprobe.exe dist/SyncForge/bin/ffprobe.exe
 
-      - name: Smoke test packaged executable
+      - name: Smoke test packaged executable and UI
         shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
           $app = Start-Process -FilePath 'dist/SyncForge/SyncForge.exe' -ArgumentList '--self-test' -Wait -PassThru
-          if ($app.ExitCode -ne 0) { throw "Packaged executable self-test failed: $($app.ExitCode)" }
+          if ($app.ExitCode -ne 0) { throw "Bundled executable failed FFmpeg smoke test: $($app.ExitCode)" }
+          $ui = Start-Process -FilePath 'dist/SyncForge/SyncForge.exe' -ArgumentList '--self-test-ui' -Wait -PassThru
+          if ($ui.ExitCode -ne 0) { throw "Bundled Qt user interface failed to launch: $($ui.ExitCode)" }
 
-      - name: Upload downloadable Windows app
+      - name: Upload ready-to-run Windows application
         uses: actions/upload-artifact@v4
         with:
-          name: SyncForge-Windows
+          name: SyncForge-Studio-v3-Windows
           path: dist/SyncForge/
           retention-days: 30
           if-no-files-found: error
