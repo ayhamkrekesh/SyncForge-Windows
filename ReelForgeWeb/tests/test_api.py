@@ -106,3 +106,24 @@ def test_render_request_and_chat_revisions(client,monkeypatch):
     server.do_render(folder)
     assert server.load(folder)["status"]=="complete"
     assert web.get(f"/api/projects/{pid}/video/result").status_code==200
+
+
+
+def test_project_deletion_and_restart_recovery(client):
+    web,calls=client
+    pid=web.post("/api/projects",files={
+        "file":("sample.mp4",b"R"*2048,"video/mp4")}).json()["id"]
+    directory=server.workdir(pid)
+    assert directory.exists()
+    # Processing projects cannot be removed from under an active worker.
+    assert web.delete(f"/api/projects/{pid}").status_code==409
+    before=len(calls)
+    server.recover_interrupted_jobs()
+    assert len(calls)>before
+    assert calls[-1][0] is server.process
+    data=server.load(directory)
+    data["status"]="ready"
+    server.save(directory,data)
+    assert web.delete(f"/api/projects/{pid}").json()=={"deleted":True}
+    assert not directory.exists()
+    assert web.get(f"/api/projects/{pid}").status_code==404
