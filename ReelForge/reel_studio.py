@@ -303,7 +303,7 @@ class ReelWindow(QMainWindow):
         name = QLabel("REELFORGE")
         name.setObjectName("logo")
         label_box.addWidget(name)
-        edition = QLabel("AUTOMATIC REEL STUDIO  /  V1.1")
+        edition = QLabel("AUTOMATIC REEL STUDIO  /  V1.2")
         edition.setObjectName("version")
         label_box.addWidget(edition)
         brand.addLayout(label_box)
@@ -595,10 +595,8 @@ def main():
         bundled_model()
         return 0
     if "--verify-caption-model" in sys.argv:
-        # Verify that bundled model and native CTranslate2 runtime actually load.
-        # A full inference test runs separately during development, not at GUI startup.
-        from faster_whisper import WhisperModel
-        WhisperModel(bundled_model(), device="cpu", compute_type="int8", cpu_threads=2)
+        from asr_health import check_asr_runtime
+        print(check_asr_runtime(bundled_model()))
         return 0
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
