@@ -502,7 +502,7 @@ document.querySelectorAll(".tab").forEach(button=>{
   try{
     const config=await request("/api/config");
     els.maxUpload.textContent=config.max_upload_mb||450;
-    if(!config.ai_ready)notice("Server AI key is not configured yet. Add OPENAI_API_KEY in Render.",8500);
+    if(!config.ai_ready)notice(config.ai_message || "AI is not ready. Start the local Ollama model.",8500);
   }catch(err){notice("Unable to reach the editing server: "+err.message,7000);}
   const id=new URLSearchParams(location.search).get("project");
   if(id&&/^[a-zA-Z0-9_-]{8,60}$/.test(id)){
