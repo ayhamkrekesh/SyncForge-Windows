@@ -19,6 +19,9 @@ import sys
 import tempfile
 import wave
 from typing import Callable
+import traceback
+
+from media_compat import inspect, extract_wav, remux_source
 
 import numpy as np
 
@@ -97,48 +100,38 @@ def execute(args: list[str], *, cwd=None) -> bytes:
 
 
 def probe(path: str | Path) -> Media:
-    item = Path(path)
-    if not item.is_file():
-        raise ValueError(f"Video file not found: {item}")
-    raw = execute([binary("ffprobe"), "-v", "error", "-show_entries",
-                   "format=duration:stream=codec_type,width,height,duration",
-                   "-of", "json", str(item)])
-    info = json.loads(raw)
-    streams = info.get("streams", [])
-    v = next((s for s in streams if s.get("codec_type") == "video"), None)
-    if v is None:
-        raise ValueError("That file does not have a video stream.")
-    duration = float(info.get("format", {}).get("duration") or v.get("duration") or 0)
-    if not math.isfinite(duration) or duration <= 0:
-        raise ValueError("Could not determine the video's duration.")
-    return Media(str(item.resolve()), duration,
-                 any(s.get("codec_type") == "audio" for s in streams),
-                 int(v.get("width") or 0), int(v.get("height") or 0))
+    """Read video properties with tolerance for unusual embedded metadata."""
+    seconds, has_audio, width, height = inspect(path, binary("ffprobe"), execute)
+    return Media(str(Path(path).resolve()), seconds, has_audio, width, height)
 
 
 def transcribe(path: str, log: Callable[[str], None]) -> list[Word]:
+    """Extract clean PCM so Whisper never directly parses camera metadata."""
     from faster_whisper import WhisperModel
-    log("Loading locally bundled transcription model...")
-    model = WhisperModel(bundled_model(), device="cpu", compute_type="int8",
-                         cpu_threads=min(8, os.cpu_count() or 4))
-    log("Recognizing speech with word timestamps (runs locally)...")
-    segments, _ = model.transcribe(
-        path, beam_size=3, word_timestamps=True, vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 480},
-        condition_on_previous_text=False)
-    words = []
-    for seg in segments:
-        if seg.words:
-            for w in seg.words:
-                token = w.word.strip()
-                if w.start is not None and w.end is not None and token:
-                    words.append(Word(float(w.start), float(w.end), token))
-        else:
-            sentence = seg.text.strip()
-            if sentence:
-                words.append(Word(float(seg.start), float(seg.end), sentence))
-    log(f"Recognized {len(words)} speech words or phrases.")
-    return words
+    with tempfile.TemporaryDirectory(prefix="reelforge_speech_") as tmp:
+        wav = Path(tmp) / "normalized_speech.wav"
+        log("Decoding audio separately from video metadata...")
+        extract_wav(path, wav, binary("ffmpeg"), execute)
+        log("Loading local multilingual speech recognizer...")
+        model = WhisperModel(bundled_model(), device="cpu", compute_type="int8",
+                             cpu_threads=min(8, os.cpu_count() or 4))
+        segments, _ = model.transcribe(
+            str(wav), beam_size=3, word_timestamps=True, vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 480},
+            condition_on_previous_text=False)
+        words = []
+        for seg in segments:
+            if seg.words:
+                for word in seg.words:
+                    token = word.word.strip()
+                    if word.start is not None and word.end is not None and token:
+                        words.append(Word(float(word.start), float(word.end), token))
+            else:
+                sentence = seg.text.strip()
+                if sentence:
+                    words.append(Word(float(seg.start), float(seg.end), sentence))
+        log(f"Recognized {len(words)} speech words or phrases.")
+        return words
 
 
 def _speech_blocks(words: list[Word], duration: float) -> list[Cut]:
@@ -509,8 +502,9 @@ def render(source: Media, cuts: list[Cut], words: list[Word],
     destination.parent.mkdir(parents=True, exist_ok=True)
     cmd = [binary("ffmpeg"), "-y", "-nostdin", "-hide_banner",
            "-loglevel", "error", "-progress", "pipe:1",
-           *inputs, "-filter_complex", graph,
+           "-fflags", "+genpts", *inputs, "-filter_complex", graph,
            "-map", "[outv]", "-map", "[outa]",
+           "-map_metadata", "-1", "-map_chapters", "-1",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
            "-r", str(FPS), "-movflags", "+faststart", "-t", f"{min(59.0,length):.3f}",
