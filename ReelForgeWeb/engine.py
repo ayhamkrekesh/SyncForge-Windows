@@ -296,19 +296,34 @@ def make_ass(project,path):
     Path(path).write_text(header+"\n".join(events)+"\n",encoding="utf-8")
 
 
-def _clip_filter(seg,fit):
-    z=seg["zoom"];focus=seg["focus_x"]
-    if fit=="blur":
-        # Whole original frame remains visible, centered against blurred background.
-        return ("fps=30,split[bb][ff];[bb]scale=1080:1920:force_original_aspect_ratio=increase,"
-                "crop=1080:1920,boxblur=24:2[back];"
-                "[ff]scale=1080:1920:force_original_aspect_ratio=decrease[front];"
-                "[back][front]overlay=(W-w)/2:(H-h)/2,format=yuv420p")
-    return (f"fps=30,scale=1080:1920:force_original_aspect_ratio=increase,"
-            f"crop=1080:1920:(iw-1080)*{focus:.3f}:(ih-1920)/2,"
-            f"zoompan=z='min({z:.4f}+on*0.0001,1.12)':"
-            f"x='(iw-iw/zoom)*{focus:.3f}':y='(ih-ih/zoom)/2':"
-            "d=1:s=1080x1920:fps=30,format=yuv420p")
+def _render_size():
+    """Default is high-quality 1080p; CI can render small test videos quickly."""
+    width = int(os.getenv("REEL_WIDTH", "1080"))
+    height = int(os.getenv("REEL_HEIGHT", "1920"))
+    if (width, height) not in ((1080, 1920), (720, 1280), (360, 640)):
+        raise ValueError("Unsupported portrait output size.")
+    return width, height
+
+
+def _clip_filter(seg, fit):
+    width, height = _render_size()
+    z = seg["zoom"]
+    focus = seg["focus_x"]
+    if fit == "blur":
+        return (
+            f"fps=30,split[bb][ff];"
+            f"[bb]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},boxblur=24:2[back];"
+            f"[ff]scale={width}:{height}:force_original_aspect_ratio=decrease[front];"
+            f"[back][front]overlay=(W-w)/2:(H-h)/2,format=yuv420p"
+        )
+    return (
+        f"fps=30,scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height}:(iw-{width})*{focus:.3f}:(ih-{height})/2,"
+        f"zoompan=z='min({z:.4f}+on*0.0001,1.12)':"
+        f"x='(iw-iw/zoom)*{focus:.3f}':y='(ih-ih/zoom)/2':"
+        f"d=1:s={width}x{height}:fps=30,format=yuv420p"
+    )
 
 
 def original_music(path,length):
