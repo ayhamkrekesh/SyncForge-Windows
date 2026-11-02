@@ -1,5 +1,7 @@
 # ReelForge AI Studio — Browser video editor
 
+**Want to run the website privately on your Windows PC without hosting or API charges?** Use the one-click [Local Windows edition](LOCAL_WINDOWS.md), with a free Ollama vision model and fully local video transcription/rendering.
+
 A real web application for professionally styled vertical short-form reels. A vision-capable AI model examines sampled **real video frames** and a **timestamped source transcript**, proposes a coherent edit under one minute, and then FFmpeg renders that edit from your actual footage. You can change the timeline manually or give the AI revised instructions in normal language.
 
 ReelForgeWeb is **separate** from the previous Windows ReelForge and SyncForge applications.

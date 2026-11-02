@@ -1,0 +1,117 @@
+name: Build ReelForge Local Windows
+
+on:
+  push:
+    branches: [main, reelforge-local-windows-ai]
+    paths:
+      - 'ReelForgeWeb/**'
+      - '.github/workflows/reelforge-local-windows.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ReelForgeWeb/**'
+      - '.github/workflows/reelforge-local-windows.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ReelForgeWeb/requirements.txt
+
+      - name: Install runtime and packaging dependencies
+        shell: pwsh
+        run: |
+          python -m pip install -r ReelForgeWeb/requirements.txt
+          python -m pip install "pyinstaller>=6.11,<7"
+
+      - name: Download FFmpeg and FFprobe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile ffmpeg.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg-download
+          New-Item -ItemType Directory -Path ReelForgeWeb/bin -Force | Out-Null
+          $exe=Get-ChildItem ffmpeg-download -Filter ffmpeg.exe -Recurse -File | Select-Object -First 1
+          if(-not $exe) { throw 'FFmpeg not found' }
+          Copy-Item $exe.FullName ReelForgeWeb/bin/ffmpeg.exe
+          Copy-Item (Join-Path $exe.DirectoryName 'ffprobe.exe') ReelForgeWeb/bin/ffprobe.exe
+          $folder=(Resolve-Path ReelForgeWeb/bin).Path
+          Add-Content -Path $env:GITHUB_PATH -Value $folder
+          & ReelForgeWeb/bin/ffmpeg.exe -version | Select-Object -First 1
+
+      - name: Run real video, API and local-AI contract tests
+        shell: pwsh
+        env:
+          REEL_WIDTH: "360"
+          REEL_HEIGHT: "640"
+          REEL_DATA_DIR: "ReelForgeWeb/test-data"
+        run: |
+          python -m compileall -q ReelForgeWeb
+          python -m pytest -q ReelForgeWeb/tests
+
+      - name: Download offline Whisper caption model
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path ReelForgeWeb/models/whisper-base -Force | Out-Null
+          python -c "from faster_whisper.utils import download_model; download_model('base', output_dir='ReelForgeWeb/models/whisper-base')"
+          if (-not (Test-Path ReelForgeWeb/models/whisper-base/model.bin)) { throw 'Whisper model download failed' }
+
+      - name: Package single-click localhost web server
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onedir --console --name ReelForgeLocal --paths ReelForgeWeb --add-data "ReelForgeWeb/static;static" --hidden-import local_ai --collect-submodules uvicorn --collect-submodules fastapi --collect-submodules multipart --collect-all faster_whisper --collect-all ctranslate2 --collect-all av --collect-all tokenizers --collect-all onnxruntime ReelForgeWeb/local_server.py
+
+      - name: Include FFmpeg, Whisper and launcher
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist/ReelForgeLocal/bin -Force | Out-Null
+          New-Item -ItemType Directory -Path dist/ReelForgeLocal/models -Force | Out-Null
+          Copy-Item ReelForgeWeb/bin/ffmpeg.exe dist/ReelForgeLocal/bin/ffmpeg.exe
+          Copy-Item ReelForgeWeb/bin/ffprobe.exe dist/ReelForgeLocal/bin/ffprobe.exe
+          Copy-Item ReelForgeWeb/models/whisper-base dist/ReelForgeLocal/models/whisper-base -Recurse
+          Copy-Item ReelForgeWeb/Start-ReelForge.cmd dist/ReelForgeLocal/Start-ReelForge.cmd
+          Copy-Item ReelForgeWeb/LOCAL_WINDOWS.md dist/ReelForgeLocal/README_LOCAL.md
+
+      - name: Smoke test EXE dependencies and localhost website
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=(Resolve-Path dist/ReelForgeLocal/ReelForgeLocal.exe).Path
+          $check=Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
+          if($check.ExitCode -ne 0) { throw "Packaged runtime failed its dependency check: $($check.ExitCode)" }
+          $server=Start-Process -FilePath $exe -PassThru -WindowStyle Hidden
+          try {
+            $ready=$false
+            for($i=0;$i -lt 40;$i++) {
+              Start-Sleep -Seconds 1
+              try {
+                $health=Invoke-RestMethod -Uri 'http://127.0.0.1:18765/health' -TimeoutSec 2
+                if($health.ok -eq $true) { $ready=$true; break }
+              } catch {}
+              if($server.HasExited) { throw "Local website crashed with exit code $($server.ExitCode)" }
+            }
+            if(-not $ready) { throw 'Packaged local website did not become healthy on 127.0.0.1:18765' }
+          }
+          finally {
+            if(-not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+          }
+
+      - name: Upload free local Windows app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReelForge-Local-Windows
+          path: dist/ReelForgeLocal/
+          if-no-files-found: error
+          retention-days: 30

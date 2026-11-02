@@ -23,7 +23,7 @@ BASE=Path(os.getenv("REEL_DATA_DIR","/data" if Path("/data").exists() else "./da
 BASE.mkdir(parents=True,exist_ok=True)
 if os.getenv("REQUIRE_AUTH")=="1" and not os.getenv("APP_PASSWORD"):
     raise RuntimeError("APP_PASSWORD must be configured for the public website.")
-if os.getenv("REQUIRE_AI")=="1" and not os.getenv("OPENAI_API_KEY"):
+if os.getenv("REQUIRE_AI")=="1" and os.getenv("AI_PROVIDER","openai")=="openai" and not os.getenv("OPENAI_API_KEY"):
     raise RuntimeError("OPENAI_API_KEY must be configured for AI editing.")
 ASSETS=Path(__file__).parent/"static"
 MAX_BYTES=int(os.getenv("MAX_UPLOAD_MB","450"))*1024*1024
@@ -143,7 +143,15 @@ def health():
 
 @app.get("/api/config")
 def config():
-    return {"ai_ready":bool(os.getenv("OPENAI_API_KEY")),
+    provider = os.getenv("AI_PROVIDER", "openai")
+    if provider == "ollama":
+        from local_ai import status as local_ai_status
+        ai = local_ai_status()
+        ready = ai["available"]
+    else:
+        ai = {"provider": "openai", "message": "Cloud API configured."}
+        ready = bool(os.getenv("OPENAI_API_KEY"))
+    return {"ai_ready":ready, "ai_provider":provider, "ai_message":ai["message"],
             "max_upload_mb":MAX_BYTES//(1024*1024),
             "auth_enabled":bool(os.getenv("APP_PASSWORD"))}
 
@@ -263,7 +271,12 @@ def chat(pid:str,req:ChatRequest):
         project=load(folder)
         if project["status"] not in ("ready","complete"):
             raise HTTPException(409,"Current job is in progress.")
-        if not os.getenv("OPENAI_API_KEY"):
+        if os.getenv("AI_PROVIDER","openai") == "ollama":
+            from local_ai import status as local_ai_status
+            ai = local_ai_status()
+            if not ai["available"]:
+                raise HTTPException(503, ai["message"])
+        elif not os.getenv("OPENAI_API_KEY"):
             raise HTTPException(503,"AI is not configured. Set OPENAI_API_KEY.")
         project["status"]="revising"
         project["error"]=None
