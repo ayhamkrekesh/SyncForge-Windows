@@ -17,7 +17,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Request, Body
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from engine import probe, recognize, cues_from_words, sample_frames, ai_plan, validate_timeline, make_proxy, render
+from engine import probe, recognize, cues_from_words, sample_frames, ai_plan, tighten_pauses, validate_timeline, make_proxy, render
 
 BASE=Path(os.getenv("REEL_DATA_DIR","/data" if Path("/data").exists() else "./data")).resolve()
 BASE.mkdir(parents=True,exist_ok=True)
@@ -104,7 +104,7 @@ def process(folder):
         log_change(folder,f"Transcript: {len(words)} words. Asking the visual AI to edit the video…",
                    words=words,cues=cues)
         candidate=ai_plan(load(folder),folder)
-        timeline=validate_timeline(candidate,info["duration"],trim=True)
+        timeline=validate_timeline(tighten_pauses(candidate,words),info["duration"],trim=True)
         log_change(folder,"AI edit ready. Adjust the timeline or chat to revise it.",
                    status="ready",timeline=timeline,revision=0)
     except Exception as exc:
@@ -117,7 +117,7 @@ def do_chat(folder,instruction):
         current=load(folder)
         log_change(folder,"AI is reviewing your requested changes…")
         candidate=ai_plan(current,folder,instruction)
-        timeline=validate_timeline(candidate,current["media"]["duration"],trim=True)
+        timeline=validate_timeline(tighten_pauses(candidate,current.get("words") or []),current["media"]["duration"],trim=True)
         log_change(folder,"AI revision complete. Timeline updated.",
                    status="ready",timeline=timeline,revision=current.get("revision",0)+1)
     except Exception as exc:
