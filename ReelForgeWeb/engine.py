@@ -187,6 +187,69 @@ def ai_plan(project,folder,instruction=None):
     return json.loads(response.output_text)
 
 
+def tighten_pauses(candidate, words, gap_seconds=.62):
+    """Remove long internal dead air from AI-selected speech clips.
+
+    AI chooses the story and visual cuts. This deterministic second pass
+    tightens long pauses at the individual word timestamp level, without
+    touching b-roll where there is no recognized speech. It runs only on
+    AI-generated plans, not on the user's manually edited timeline.
+    """
+    if not words or not isinstance(candidate, dict):
+        return candidate
+    segments = candidate.get("segments")
+    if not isinstance(segments, list):
+        return candidate
+    result = []
+    for seg in segments:
+        try:
+            start = float(seg["start"])
+            end = float(seg["end"])
+        except (ValueError, TypeError, KeyError):
+            result.append(seg)
+            continue
+        speech = [w for w in words
+                  if float(w["start"]) >= start and float(w["end"]) <= end]
+        if len(speech) < 3 or end - start < 2:
+            result.append(seg)
+            continue
+        speech.sort(key=lambda w: w["start"])
+        cut_points = []
+        for left, right in zip(speech, speech[1:]):
+            silence = float(right["start"]) - float(left["end"])
+            if silence >= gap_seconds:
+                cut_points.append((float(left["end"]), float(right["start"])))
+        trimmed_start = start if float(speech[0]["start"]) - start < .45 else max(start, float(speech[0]["start"]) - .12)
+        trimmed_end = end if end - float(speech[-1]["end"]) < .45 else min(end, float(speech[-1]["end"]) + .17)
+        if not cut_points:
+            if trimmed_end - trimmed_start >= .45:
+                result.append(dict(seg, start=round(trimmed_start,3), end=round(trimmed_end,3)))
+            else:
+                result.append(seg)
+            continue
+        prev = trimmed_start
+        chunks = []
+        for before, after in cut_points:
+            finish = min(trimmed_end, before + .15)
+            if finish - prev >= .43:
+                chunks.append((prev,finish))
+            prev = max(prev, after - .12)
+        if trimmed_end - prev >= .43:
+            chunks.append((prev,trimmed_end))
+        if not chunks or len(result) + len(chunks) > MAX_SEGMENTS:
+            result.append(seg)
+            continue
+        for i, (a,b) in enumerate(chunks):
+            copy = dict(seg, start=round(a,3), end=round(b,3))
+            if i:
+                copy["transition"]="cut"
+                copy["zoom"]=min(1.09, float(seg.get("zoom",1.03))+(i%2)*.016)
+            result.append(copy)
+    if len(result) > MAX_SEGMENTS or not result:
+        return candidate
+    return dict(candidate, segments=result)
+
+
 def validate_timeline(candidate,source_duration,trim=False):
     if not isinstance(candidate,dict):
         raise ValueError("Invalid timeline.")
