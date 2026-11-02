@@ -558,6 +558,23 @@ def main():
         binary("ffprobe")
         bundled_model()
         return 0
+    if "--verify-caption-model" in sys.argv:
+        # Real packaged CTranslate2 load and speech pipeline initialization.
+        import wave
+        import tempfile
+        from faster_whisper import WhisperModel
+        model = WhisperModel(bundled_model(), device="cpu", compute_type="int8", cpu_threads=2)
+        with tempfile.TemporaryDirectory(prefix="rf_model_test_") as tmp:
+            sample = Path(tmp) / "silence.wav"
+            with wave.open(str(sample), "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(16000)
+                wav.writeframes(bytes(16000 * 2))
+            segments, _ = model.transcribe(str(sample), beam_size=1, vad_filter=True,
+                                           word_timestamps=True)
+            list(segments)
+        return 0
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setFont(QFont("Segoe UI", 10))
