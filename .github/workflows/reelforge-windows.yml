@@ -1,0 +1,95 @@
+name: Build ReelForge Windows App
+
+on:
+  push:
+    branches: [main, reelforge-desktop]
+    paths:
+      - 'ReelForge/**'
+      - '.github/workflows/reelforge-windows.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ReelForge/**'
+      - '.github/workflows/reelforge-windows.yml'
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: ReelForge/requirements.txt
+
+      - name: Install application dependencies
+        run: python -m pip install -r ReelForge/requirements.txt
+
+      - name: Download FFmpeg for Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile ffmpeg.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg-download
+          New-Item -ItemType Directory -Path ReelForge/bin -Force | Out-Null
+          $exe = Get-ChildItem ffmpeg-download -Filter ffmpeg.exe -Recurse -File | Select-Object -First 1
+          if (-not $exe) { throw 'FFmpeg not found' }
+          Copy-Item $exe.FullName ReelForge/bin/ffmpeg.exe
+          Copy-Item (Join-Path $exe.DirectoryName 'ffprobe.exe') ReelForge/bin/ffprobe.exe
+
+      - name: Python syntax and automated media-rendering tests
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m compileall -q ReelForge
+          python -m pytest -q ReelForge/tests
+
+      - name: Bundle multilingual offline caption model
+        run: python ReelForge/scripts/download_model.py
+
+      - name: Package ReelForge.exe for Windows
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name ReelForge --paths ReelForge --collect-all faster_whisper --collect-all ctranslate2 --collect-all av --collect-all tokenizers --collect-all onnxruntime ReelForge/reel_studio.py
+
+      - name: Include speech model and video tools
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist/ReelForge/bin -Force | Out-Null
+          New-Item -ItemType Directory -Path dist/ReelForge/models -Force | Out-Null
+          Copy-Item ReelForge/bin/ffmpeg.exe dist/ReelForge/bin/ffmpeg.exe
+          Copy-Item ReelForge/bin/ffprobe.exe dist/ReelForge/bin/ffprobe.exe
+          Copy-Item ReelForge/models/whisper-base dist/ReelForge/models/whisper-base -Recurse
+
+      - name: Smoke test packaged executable and Qt interface
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $app = Start-Process -FilePath 'dist/ReelForge/ReelForge.exe' -ArgumentList '--self-test' -Wait -PassThru
+          if ($app.ExitCode -ne 0) { throw "EXE dependency check failed: $($app.ExitCode)" }
+          $ui = Start-Process -FilePath 'dist/ReelForge/ReelForge.exe' -ArgumentList '--smoke-ui' -Wait -PassThru
+          if ($ui.ExitCode -ne 0) { throw "Packaged GUI check failed: $($ui.ExitCode)" }
+          $model = Start-Process -FilePath 'dist/ReelForge/ReelForge.exe' -ArgumentList '--verify-caption-model' -PassThru
+          if (-not $model.WaitForExit(90000)) {
+            $model.Kill()
+            throw 'Bundled speech model initialization exceeded 90 seconds'
+          }
+          if ($model.ExitCode -ne 0) { throw "Bundled offline speech model check failed: $($model.ExitCode)" }
+
+      - name: Upload one-click Windows download
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReelForge-Windows
+          path: dist/ReelForge/
+          retention-days: 30
+          if-no-files-found: error
