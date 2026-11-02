@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ReelForge AI Studio — Edit at the speed of thought</title>
+  <meta name="theme-color" content="#08101c">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="glow glow-a"></div><div class="glow glow-b"></div>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="ReelForge AI Studio"><div class="brand-mark">R<span>✦</span></div>
+      <span><strong>ReelForge</strong><small>AI STUDIO</small></span></a>
+    <span class="top-label"><span class="status-dot"></span> PRIVATE EDITING WORKSPACE</span>
+    <div class="top-actions"><span class="max-pill">9:16 VERTICAL · &lt; 60 SEC</span>
+      <button id="newBtn" class="btn subtle">+ New reel</button></div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow"><span class="spark">✦</span> THE EDITING PARTNER THAT ACTUALLY WATCHES</span>
+        <h1>Turn your footage into <em>something worth watching.</em></h1>
+        <p>AI-selected moments. Dead-air removal. Captions that land. Natural cuts and smooth pacing. Refine with a sentence—or take control of every clip.</p>
+      </div>
+      <div class="hero-features"><span>◎ Visual AI analysis</span><span>◈ Precision subtitles</span><span>⌁ Manual timeline</span></div>
+    </section>
+
+    <section class="workspace">
+      <div class="side-column">
+        <div class="panel upload-panel">
+          <div class="panel-head"><div><span class="section-num">01 / IMPORT</span><h2>Your source footage</h2></div><span class="tiny-badge">LOCAL → PRIVATE SERVER</span></div>
+          <div id="drop" class="drop-zone" role="button" tabindex="0" aria-label="Choose a video to upload">
+            <div class="drop-icon">⬆</div>
+            <strong>Drop your video here</strong>
+            <p>or <span>browse from your computer</span></p>
+            <small>MP4, MOV, MKV, WebM and more · Up to <span id="maxUpload">450</span> MB</small>
+          </div>
+          <input id="fileInput" type="file" accept=".mp4,.mov,.mkv,.webm,.avi,.mxf,.mts,.m2ts,video/*" hidden />
+          <div id="sourceRow" class="source-row" hidden><span id="sourceName"></span><span id="sourceDuration"></span></div>
+          <div id="jobState" class="job-state" hidden>
+            <div class="loading-pulse"></div><div><strong id="jobTitle">Analyzing your video</strong><p id="jobDetail">Reading real frames and spoken words…</p></div>
+          </div>
+        </div>
+
+        <div class="panel guide">
+          <div class="panel-head"><div><span class="section-num">THE WORKFLOW</span><h2>From raw to ready</h2></div></div>
+          <div class="steps">
+            <div><span>01</span><p><strong>AI analyzes</strong><small>Real frames + timestamped transcript</small></p></div>
+            <div><span>02</span><p><strong>You fine-tune</strong><small>Chat with AI or move cuts manually</small></p></div>
+            <div><span>03</span><p><strong>Export reel</strong><small>9:16 MP4 with burnt-in captions</small></p></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="center-column">
+        <div class="panel player-panel">
+          <div class="panel-head"><div><span class="section-num">02 / PREVIEW</span><h2>Your vertical reel</h2></div><span id="durationBadge" class="duration-badge">00:00 / 00:58</span></div>
+          <div class="player-wrap">
+            <div id="videoStage" class="video-stage">
+              <div id="placeholder" class="stage-placeholder"><div class="stage-orbit"><span>▶</span></div>
+                <strong>Your story starts here</strong><p>Upload a video to see your AI edit</p></div>
+              <video id="preview" playsinline preload="metadata" hidden></video>
+              <div id="captionOverlay" class="caption-overlay" hidden></div>
+              <div class="video-tag">9:16 <span>·</span> AI REEL</div>
+            </div>
+            <div class="player-tools">
+              <button id="playBtn" class="btn play" disabled>▶ Preview edit</button>
+              <button id="sourceBtn" class="btn subtle" disabled>Play source</button>
+              <div class="player-indicator"><span class="status-dot"></span> <span id="playerMode">No video loaded</span></div>
+            </div>
+          </div>
+          <div id="planSummary" class="plan-summary" hidden><span class="eyebrow">AI DIRECTOR'S NOTES</span><h3 id="planTitle"></h3><p id="planNotes"></p></div>
+        </div>
+      </div>
+
+      <div class="right-column">
+        <div class="panel chat-panel">
+          <div class="panel-head"><div><span class="section-num">03 / AI DIRECTOR</span><h2>Direct the edit</h2></div><div class="ai-chip"><span>✦</span> AI</div></div>
+          <div id="messages" class="messages">
+            <div class="bubble assistant"><small>YOUR EDITING PARTNER</small><p>Send me a video. I'll review its visuals and speech, choose the strongest moments, remove pauses and prepare a reel. Then tell me what you'd change.</p></div>
+          </div>
+          <div class="suggestions"><button data-prompt="Make the beginning much more attention-grabbing">Stronger hook</button><button data-prompt="Make the cuts tighter and remove every noticeable pause">Faster pacing</button><button data-prompt="Use fewer transitions and more natural jump cuts">Cleaner cuts</button></div>
+          <form id="chatForm" class="chat-compose"><textarea id="chatInput" rows="2" placeholder="Make the intro more energetic…" aria-label="Describe changes to your edit"></textarea><button id="sendBtn" type="submit" disabled aria-label="Send edit request">➤</button></form>
+          <p class="helper">Every AI change updates an editable timeline, not just a new video.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="editor panel">
+      <div class="panel-head editor-head"><div><span class="section-num">04 / FINE CUT</span><h2>Take creative control</h2><p>Every clip can be trimmed, reordered and reframed. Captions remain editable.</p></div>
+      <div class="editor-actions"><button id="addClipBtn" class="btn subtle" disabled>+ Add clip</button><button id="saveBtn" class="btn outline" disabled>Save timeline</button><button id="exportBtn" class="btn primary" disabled><span>✦</span> Render my reel</button></div></div>
+      <div class="tabs"><button class="tab active" data-tab="timeline">✂ Timeline & cuts</button><button class="tab" data-tab="captions">≡ Captions</button><button class="tab" data-tab="settings">⚙ Style & soundtrack</button></div>
+      <div id="timelinePanel" class="tab-panel">
+        <div id="timelineStrip" class="timeline-strip"><span class="empty-line">Your timeline will appear after AI analysis.</span></div>
+        <div class="timeline-scale"><span>0:00</span><span id="timelineTotal">0:00</span></div>
+        <div id="clips" class="clip-list"></div>
+      </div>
+      <div id="captionsPanel" class="tab-panel" hidden><div class="caption-heading"><p>Correct any line of text before it is burnt into the video.</p><button id="saveCaptionsBtn" class="btn outline" disabled>Save captions</button></div><div id="captionRows" class="caption-list"></div></div>
+      <div id="settingsPanel" class="tab-panel" hidden><div class="settings-grid">
+        <label>Video framing<select id="fitSetting"><option value="crop">9:16 cinematic crop</option><option value="blur">Full picture · blurred backdrop</option></select></label>
+        <label>Captions<select id="captionSetting"><option value="bold">Bold social</option><option value="minimal">Minimal clean</option></select></label>
+        <label>Music<select id="musicSetting"><option value="none">Original audio only</option><option value="subtle">Add subtle original instrumental</option></select></label>
+      </div><p class="helper">Choose framing carefully—automatic AI cropping isn't continuous face tracking.</p></div>
+      <div id="downloadBar" class="download-bar" hidden><div><strong>✓ Your reel is ready</strong><p>The final MP4 includes cuts, transitions, sound and embedded subtitles.</p></div><a id="downloadLink" class="btn primary" download="ReelForge_Reel.mp4">↓ Download MP4</a></div>
+    </section>
+
+    <footer><span>REELFORGE AI STUDIO</span><span>Review captions and story accuracy before publishing. No software can guarantee virality.</span></footer>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script defer src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: reelforge-ai-studio
+    runtime: docker
+    dockerfilePath: ./ReelForgeWeb/Dockerfile
+    dockerContext: ./ReelForgeWeb
+    plan: 1c-2g
+    region: frankfurt
+    healthCheckPath: /health
+    disk:
+      name: reelforge-projects
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: REQUIRE_AUTH
+        value: "1"
+      - key: REQUIRE_AI
+        value: "1"
+      - key: REEL_DATA_DIR
+        value: /data
+      - key: MAX_UPLOAD_MB
+        value: "450"
+      - key: WHISPER_MODEL
+        value: base
+      - key: VISION_MODEL
+        value: gpt-4.1-mini

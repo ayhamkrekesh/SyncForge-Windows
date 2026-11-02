@@ -1,0 +1,58 @@
+name: Test ReelForge AI Website
+
+on:
+  push:
+    branches: [main, reelforge-web-ai-editor]
+    paths:
+      - 'ReelForgeWeb/**'
+      - 'render.yaml'
+      - '.github/workflows/reelforge-web.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ReelForgeWeb/**'
+      - 'render.yaml'
+      - '.github/workflows/reelforge-web.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: reelforge-web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fullstack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ReelForgeWeb/requirements.txt
+      - name: Install web editor dependencies
+        run: python -m pip install -r ReelForgeWeb/requirements.txt
+      - name: Install FFmpeg and fonts for real video tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          command -v ffmpeg
+          command -v ffprobe
+          ffmpeg -version
+      - name: Check Python and browser JS syntax
+        run: |
+          python -m compileall -q ReelForgeWeb
+          node --check ReelForgeWeb/static/app.js
+      - name: Test real video render and REST editing
+        env:
+          PYTHONPATH: ReelForgeWeb
+          REEL_DATA_DIR: /tmp/reelforge-website-test
+          REEL_WIDTH: "360"
+          REEL_HEIGHT: "640"
+        run: timeout 420 python -m pytest -vv -s -x ReelForgeWeb/tests
+      - name: Build standalone Render Docker image
+        run: docker build --pull -f ReelForgeWeb/Dockerfile -t reelforge-web:ci ReelForgeWeb
