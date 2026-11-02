@@ -295,15 +295,28 @@ def validate_timeline(candidate,source_duration,trim=False):
     def total_length(items):
         return sum((s["end"]-s["start"])/s["speed"] for s in items)-sum(
             FADE for s in items[1:] if s["transition"]=="dissolve")
-    if trim and total_length(segments)>MAX_REEL:
-        # Shorten the tail so API never quietly produces reels over 60 seconds.
-        while segments and total_length(segments)>55.0:
-            excess=total_length(segments)-55.
-            last=segments[-1]
-            available=(last["end"]-last["start"])/last["speed"]-.55
-            if available>0:
-                last["end"]=round(last["end"]-min(excess,available)*last["speed"],3)
-            else: segments.pop()
+    if trim and total_length(segments) > MAX_REEL:
+        # Single linear pass. Never retry rounding tiny fractional adjustments:
+        # that previously could create a non-terminating edit.
+        shortened = []
+        remaining = 55.0
+        for original in segments:
+            seg = dict(original)
+            overlap = FADE if seg["transition"] == "dissolve" and shortened else 0.0
+            allowed = remaining + overlap
+            if allowed < .42:
+                break
+            current_length = (seg["end"] - seg["start"]) / seg["speed"]
+            if current_length > allowed:
+                seg["end"] = round(seg["start"] + max(.4, allowed-.004) * seg["speed"], 3)
+                current_length = (seg["end"] - seg["start"]) / seg["speed"]
+            if current_length < .4:
+                break
+            shortened.append(seg)
+            remaining -= current_length - overlap
+            if remaining < .42:
+                break
+        segments = shortened
     duration=total_length(segments)
     if duration>MAX_REEL or duration<.4:
         raise ValueError(f"Reel duration must be 0.4–58 seconds, got {duration:.1f}.")
