@@ -10,11 +10,13 @@ const els = Object.fromEntries(
    "planNotes","messages","chatForm","chatInput","sendBtn","timelineStrip",
    "timelineTotal","clips","captionRows","saveCaptionsBtn","fitSetting",
    "captionSetting","musicSetting","downloadBar","downloadLink","exportBtn",
-   "saveBtn","addClipBtn","newBtn","toast"].map(id => [id, $(id)]));
+   "saveBtn","addClipBtn","newBtn","deleteBtn","toast"].map(id => [id, $(id)]));
 let project = null;
 let draft = null;
 let cuesDraft = [];
 let dirty = false;
+let captionDirty = false;
+let lastErrorSeen = "";
 let currentProject = "";
 let activeId = "";
 let playEdit = false;
@@ -309,7 +311,7 @@ function renderCaptionRows() {
     const input=element("textarea");
     input.rows=2; input.value=cue.text;
     input.setAttribute("aria-label","Subtitle line "+(index+1));
-    input.addEventListener("input",()=>cue.text=input.value);
+    input.addEventListener("input",()=>{cue.text=input.value;captionDirty=true;});
     append(row,time,input);els.captionRows.append(row);
   });
   if (!cuesDraft.length)
@@ -320,7 +322,7 @@ function loadTimelineFromProject(data) {
   if (!data.timeline) return;
   draft=deep(data.timeline);
   cuesDraft=deep(data.cues || []);
-  revision=data.revision ?? 0;dirty=false;
+  revision=data.revision ?? 0;dirty=false;captionDirty=false;
   els.playBtn.disabled=false;els.sourceBtn.disabled=false;
   syncSettingInputs();renderClips();renderCaptionRows();updatePlanInfo();
   setBusy(false);
@@ -333,6 +335,12 @@ function loadTimelineFromProject(data) {
 }
 function updateProject(data) {
   project=data;
+  els.deleteBtn.hidden=false;
+  if (data.error && data.error !== lastErrorSeen) {
+    lastErrorSeen=data.error;
+    notice(data.error,9000);
+    if (data.status==="ready") message("assistant","The previous operation failed: "+data.error);
+  }
   els.sourceRow.hidden=false;
   els.sourceName.textContent=data.source_name||"Source video";
   els.sourceDuration.textContent=data.media?.duration ? fmt(data.media.duration) : "Analyzing";
@@ -396,7 +404,7 @@ async function upload(file) {
     const data=await request("/api/projects",{method:"POST",body:form});
     currentProject=data.id;
     history.replaceState(null,"","/?project="+encodeURIComponent(data.id));
-    project=null;draft=null;revision=-1;lastStatus="";
+    project=null;draft=null;revision=-1;lastStatus="";lastErrorSeen="";captionDirty=false;
     els.messages.replaceChildren();
     message("assistant","I received your video. I'm examining visuals, pauses and transcript. I’ll show you the proposed cut as soon as analysis finishes.");
     els.preview.pause();els.preview.removeAttribute("src");els.preview.load();
@@ -411,12 +419,20 @@ els.fileInput.addEventListener("change",()=>{if(els.fileInput.files[0])upload(el
 ["dragleave","drop"].forEach(name=>els.drop.addEventListener(name,e=>{e.preventDefault();els.drop.classList.remove("over");}));
 els.drop.addEventListener("drop",e=>{if(e.dataTransfer?.files?.[0])upload(e.dataTransfer.files[0]);});
 els.newBtn.addEventListener("click",()=>{window.location.href="/";});
+els.deleteBtn.addEventListener("click",async()=>{
+  if (!currentProject) return;
+  if (!window.confirm("Permanently delete this project and all its video files from the server? This cannot be undone.")) return;
+  try {
+    await request("/api/projects/"+encodeURIComponent(currentProject),{method:"DELETE"});
+    location.href="/";
+  } catch(err){notice(err.message,6500);}
+});
 
 els.chatForm.addEventListener("submit",async e=>{
   e.preventDefault();
   const instruction=els.chatInput.value.trim();
   if(!draft||instruction.length<2)return;
-  if(dirty)return notice("Save your manual timeline edits before asking AI to revise it.",6000);
+  if(dirty||captionDirty)return notice("Save timeline and caption edits before asking AI to revise it.",6000);
   els.chatInput.value="";
   message("user",instruction);
   try{
@@ -447,6 +463,7 @@ els.saveCaptionsBtn.addEventListener("click",async()=>{
   try {
     const data=await jsonRequest("PUT","/api/projects/"+currentProject+"/captions",{cues:cuesDraft});
     cuesDraft=deep(data.cues);
+    captionDirty=false;
     els.downloadBar.hidden=true;
     notice("Captions saved.");
   }catch(err){notice("Could not save captions: "+err.message,7000);}
@@ -465,8 +482,8 @@ els.addClipBtn.addEventListener("click",()=>{
 });
 els.exportBtn.addEventListener("click",async()=>{
   if(!draft)return;
-  if(dirty){
-    notice("Save your timeline first, then render.",6000);
+  if(dirty || captionDirty){
+    notice("Save your timeline and caption changes before rendering.",6000);
     els.saveBtn.focus();return;
   }
   try{
