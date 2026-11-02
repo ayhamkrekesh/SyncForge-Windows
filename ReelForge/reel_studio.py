@@ -303,7 +303,7 @@ class ReelWindow(QMainWindow):
         name = QLabel("REELFORGE")
         name.setObjectName("logo")
         label_box.addWidget(name)
-        edition = QLabel("AUTOMATIC REEL STUDIO  /  V1.0")
+        edition = QLabel("AUTOMATIC REEL STUDIO  /  V1.1")
         edition.setObjectName("version")
         label_box.addWidget(edition)
         brand.addLayout(label_box)
