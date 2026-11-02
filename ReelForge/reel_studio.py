@@ -596,7 +596,7 @@ def main():
         return 0
     if "--verify-caption-model" in sys.argv:
         from asr_health import check_asr_runtime
-        print(check_asr_runtime(bundled_model()))
+        check_asr_runtime(bundled_model())
         return 0
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
