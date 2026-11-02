@@ -50,10 +50,12 @@ The GitHub Actions workflow tests actual media rendering, FFmpeg transitions, AP
 - Uploaded footage lives on the Render service's persistent disk, not your Windows computer. Video frames and transcript text are sent to the configured model API for AI editing.
 - This private single-user prototype uses HTTP Basic authentication. It is not a production multi-user application with per-user accounts and storage quotas.
 - The initial background-job queue runs inside one server process; jobs in progress will not survive redeploys. Resubmit the video if a job is interrupted.
-- Projects do not expire automatically. Delete unwanted projects from your Render disk manually or add retention policies before using it commercially.
+- Projects do not expire automatically. Use **Delete project** inside the website to permanently remove footage, subtitles and exports when no longer needed. Add time-based retention policies before commercial deployment.
 - High-resolution FFmpeg exports and speech recognition are CPU-intensive and may take time.
 - AI edits do not automatically track faces or follow camera subjects frame by frame. Try blur framing for off-center subjects.
 - Optional music is original and synthesized rather than an unlicensed commercial track.
 - Always review speech, caption accuracy, context, audio balance and crop before publishing.
 
 Render documentation: https://render.com/docs/disks and https://render.com/docs/blueprint-spec
+
+The Docker image bundles the offline multilingual Whisper base model at build time. If Render restarts while analysis or rendering is active, the server resumes those tasks from persisted project files; an interrupted AI chat revision can be requested again. This is a single-instance recovery mechanism, not a durable distributed job queue.
