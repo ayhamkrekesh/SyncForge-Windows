@@ -533,12 +533,17 @@ class ReelWindow(QMainWindow):
         self.go.setEnabled(True)
         self.drop.pick_button.setEnabled(True)
         self.open_button.setEnabled(True)
-        QMessageBox.information(self, "ReelForge finished",
+        warnings = report.get("warnings") or []
+        details = (
             "Your reel has been exported successfully.\n\n"
             f"Length: {report['duration']:.1f} seconds\n"
-            f"Captions: {'Yes' if report['captions'] else 'No speech detected'}\n"
+            f"Captions: {'Yes' if report['captions'] else 'No (check speech recognition)'}\n"
             f"Original beat: {'Yes' if report['original_music'] else 'No'}\n\n"
             "Open the finished reel folder to review the video.")
+        if warnings:
+            details += "\n\nReview notices:\n" + "\n".join("- " + str(w) for w in warnings)
+            self.logs.appendPlainText("Warnings: " + "; ".join(map(str, warnings)))
+        QMessageBox.information(self, "ReelForge finished", details)
 
     @Slot(str)
     def failed(self, error: str):
