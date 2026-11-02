@@ -26,6 +26,14 @@ For videos with speech, the app transcribes words locally using a bundled Whispe
 
 For silent footage or footage without usable speech, it samples visual motion and creates a faster montage with original instrumental backing music. Output is a standard vertical H.264/AAC video.
 
+## If your source video has metadata errors (v1.1)
+
+The new build retries metadata inspection, decodes speech into a clean 16 kHz WAV file before transcription, and can automatically remove problematic source container metadata/timestamps from a temporary working copy. **Your original input video is not modified.**
+
+Even if source duration metadata cannot initially be inspected, you can now select the file and press Create My Reel to try the automatic repair. If it fails, open the output folder for that job and find ReelForge_Error_Report.txt, or use Copy Error Details in the app. The error report contains the underlying failure, which is much more useful than a generic "metadata error."
+
+An MP4 with a missing moov atom, damaged bytes or an incomplete transfer may not be repairable; try re-exporting the source as a standard MP4 using H.264 video and AAC audio. If the repaired build still fails, share the **exact error message or report** (not necessarily the whole video) so we can identify that particular format issue.
+
 ## Quality notes and limitations
 
 - **Under 60 seconds**: final exports are checked with FFprobe; target length is approximately 45–55 seconds where source allows.

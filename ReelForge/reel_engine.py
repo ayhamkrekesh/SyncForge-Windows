@@ -19,6 +19,9 @@ import sys
 import tempfile
 import wave
 from typing import Callable
+import traceback
+
+from media_compat import inspect, extract_wav, remux_source
 
 import numpy as np
 
@@ -97,48 +100,38 @@ def execute(args: list[str], *, cwd=None) -> bytes:
 
 
 def probe(path: str | Path) -> Media:
-    item = Path(path)
-    if not item.is_file():
-        raise ValueError(f"Video file not found: {item}")
-    raw = execute([binary("ffprobe"), "-v", "error", "-show_entries",
-                   "format=duration:stream=codec_type,width,height,duration",
-                   "-of", "json", str(item)])
-    info = json.loads(raw)
-    streams = info.get("streams", [])
-    v = next((s for s in streams if s.get("codec_type") == "video"), None)
-    if v is None:
-        raise ValueError("That file does not have a video stream.")
-    duration = float(info.get("format", {}).get("duration") or v.get("duration") or 0)
-    if not math.isfinite(duration) or duration <= 0:
-        raise ValueError("Could not determine the video's duration.")
-    return Media(str(item.resolve()), duration,
-                 any(s.get("codec_type") == "audio" for s in streams),
-                 int(v.get("width") or 0), int(v.get("height") or 0))
+    """Read video properties with tolerance for unusual embedded metadata."""
+    seconds, has_audio, width, height = inspect(path, binary("ffprobe"), execute)
+    return Media(str(Path(path).resolve()), seconds, has_audio, width, height)
 
 
 def transcribe(path: str, log: Callable[[str], None]) -> list[Word]:
+    """Extract clean PCM so Whisper never directly parses camera metadata."""
     from faster_whisper import WhisperModel
-    log("Loading locally bundled transcription model...")
-    model = WhisperModel(bundled_model(), device="cpu", compute_type="int8",
-                         cpu_threads=min(8, os.cpu_count() or 4))
-    log("Recognizing speech with word timestamps (runs locally)...")
-    segments, _ = model.transcribe(
-        path, beam_size=3, word_timestamps=True, vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 480},
-        condition_on_previous_text=False)
-    words = []
-    for seg in segments:
-        if seg.words:
-            for w in seg.words:
-                token = w.word.strip()
-                if w.start is not None and w.end is not None and token:
-                    words.append(Word(float(w.start), float(w.end), token))
-        else:
-            sentence = seg.text.strip()
-            if sentence:
-                words.append(Word(float(seg.start), float(seg.end), sentence))
-    log(f"Recognized {len(words)} speech words or phrases.")
-    return words
+    with tempfile.TemporaryDirectory(prefix="reelforge_speech_") as tmp:
+        wav = Path(tmp) / "normalized_speech.wav"
+        log("Decoding audio separately from video metadata...")
+        extract_wav(path, wav, binary("ffmpeg"), execute)
+        log("Loading local multilingual speech recognizer...")
+        model = WhisperModel(bundled_model(), device="cpu", compute_type="int8",
+                             cpu_threads=min(8, os.cpu_count() or 4))
+        segments, _ = model.transcribe(
+            str(wav), beam_size=3, word_timestamps=True, vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 480},
+            condition_on_previous_text=False)
+        words = []
+        for seg in segments:
+            if seg.words:
+                for word in seg.words:
+                    token = word.word.strip()
+                    if word.start is not None and word.end is not None and token:
+                        words.append(Word(float(word.start), float(word.end), token))
+            else:
+                sentence = seg.text.strip()
+                if sentence:
+                    words.append(Word(float(seg.start), float(seg.end), sentence))
+        log(f"Recognized {len(words)} speech words or phrases.")
+        return words
 
 
 def _speech_blocks(words: list[Word], duration: float) -> list[Cut]:
@@ -509,8 +502,9 @@ def render(source: Media, cuts: list[Cut], words: list[Word],
     destination.parent.mkdir(parents=True, exist_ok=True)
     cmd = [binary("ffmpeg"), "-y", "-nostdin", "-hide_banner",
            "-loglevel", "error", "-progress", "pipe:1",
-           *inputs, "-filter_complex", graph,
+           "-fflags", "+genpts", *inputs, "-filter_complex", graph,
            "-map", "[outv]", "-map", "[outa]",
+           "-map_metadata", "-1", "-map_chapters", "-1",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
            "-r", str(FPS), "-movflags", "+faststart", "-t", f"{min(59.0,length):.3f}",
@@ -563,53 +557,106 @@ def make_reel(path: str, output_folder: str, *, crop="Dynamic crop",
               log: Callable[[str], None] | None = None,
               progress: Callable[[float], None] | None = None,
               transcript_override: list[Word] | None = None) -> dict:
+    """Edit with automatic metadata recovery and persist diagnostics on failure."""
     log = log or (lambda _: None)
     progress = progress or (lambda _: None)
-    source = probe(path)
-    if source.duration < 0.6:
-        raise ValueError("The input video is too short to edit.")
     folder = Path(output_folder).expanduser()
     folder.mkdir(parents=True, exist_ok=True)
     stem = "ReelForge_" + datetime.now().strftime("%Y%m%d_%H%M%S")
     target_folder = folder / stem
-    n = 2
+    number = 2
     while target_folder.exists():
-        target_folder = folder / f"{stem}_{n}"
-        n += 1
+        target_folder = folder / f"{stem}_{number}"
+        number += 1
     target_folder.mkdir()
-    log(f"Source video: {Path(source.path).name} ({source.duration:.1f}s)")
-    progress(0.03)
+    requested_source = str(Path(path).resolve())
+    recovered = target_folder / "Recovered_Source.mkv"
+    warnings = []
+    progress(0.01)
     try:
-        words = (list(transcript_override) if transcript_override is not None else
-                 (transcribe(source.path, log) if source.has_audio else []))
+        try:
+            source = probe(requested_source)
+        except (ValueError, RuntimeError) as exc:
+            log(f"Unusual metadata detected: {exc}")
+            log("Repairing a temporary copy of the video (original stays untouched)...")
+            remux_source(requested_source, recovered, binary("ffmpeg"), execute)
+            source = probe(recovered)
+            warnings.append("Repackaged source metadata in a temporary lossless copy.")
+        if source.duration < 0.6:
+            raise ValueError("The input video is too short to edit.")
+        log(f"Source video: {Path(requested_source).name} ({source.duration:.1f}s)")
+        progress(0.04)
+        if transcript_override is not None:
+            words = list(transcript_override)
+        elif source.has_audio:
+            try:
+                words = transcribe(source.path, log)
+            except Exception as exc:
+                warnings.append(f"Speech recognition unavailable: {exc}")
+                log(f"Speech recognition unavailable: {exc}. Making a visual reel instead.")
+                words = []
+        else:
+            words = []
         progress(0.18)
         speech = select_speech_cuts(words, source.duration) if words else []
         if speech:
-            log(f"Choosing spoken highlights from {len(speech)} cuts.")
             cuts = enforce_limit(speech)
             selection = "speech highlights"
+            log(f"Selected {len(cuts)} spoken highlights.")
         else:
-            log("No usable spoken sections — creating a motion-led montage.")
+            log("Selecting visually active moments...")
             cuts = enforce_limit(select_montage_cuts(source.path, source.duration))
             selection = "motion montage"
         if not cuts:
             cuts = [Cut(0.0, min(10.0, source.duration))]
         progress(0.28)
         destination = target_folder / "ReelForge_Final_Reel.mp4"
-        with tempfile.TemporaryDirectory(prefix="reelforge_") as tmp:
-            meta = render(source, cuts, words, destination, Path(tmp), crop=crop,
-                          music=music, resolution=resolution, log=log,
-                          progress=lambda f: progress(0.28 + f * 0.70))
-        meta.update({"selection": selection, "source": source.path,
+        with tempfile.TemporaryDirectory(prefix="reelforge_") as tempdir:
+            temp = Path(tempdir)
+            try:
+                meta = render(source, cuts, words, destination, temp, crop=crop,
+                              music=music, resolution=resolution, log=log,
+                              progress=lambda f: progress(0.28 + f * 0.70))
+            except RuntimeError as exc:
+                if Path(source.path).resolve() == recovered.resolve():
+                    raise
+                log(f"Render encountered unusual source metadata: {exc}")
+                log("Retrying after automatic temporary metadata repair...")
+                remux_source(requested_source, recovered, binary("ffmpeg"), execute)
+                source = probe(recovered)
+                cuts = [Cut(c.start, min(c.end, source.duration)) for c in cuts
+                        if c.start + 0.45 < source.duration]
+                if not cuts:
+                    raise RuntimeError("No usable frames after metadata repair.")
+                warnings.append("Recovered timeline metadata before retrying render.")
+                meta = render(source, cuts, words, destination, temp, crop=crop,
+                              music=music, resolution=resolution, log=log,
+                              progress=lambda f: progress(0.28 + f * 0.70))
+        meta.update({"selection": selection, "source": requested_source,
                      "original_duration": source.duration, "crop": crop,
                      "music_setting": music, "resolution": resolution,
+                     "warnings": warnings,
                      "transcription": [asdict(w) for w in reel_word_timing(words, cuts)]})
         (target_folder / "Edit_Decisions.json").write_text(
             json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
         progress(1.0)
-        log(f"DONE — {meta['duration']:.1f}s reel, stored in {target_folder}")
+        log(f"DONE: {meta['duration']:.1f}s reel saved in {target_folder}")
         return meta
-    except Exception:
-        # Keep the log directory for troubleshooting; delete partial video.
+    except Exception as exc:
         (target_folder / "ReelForge_Final_Reel.mp4").unlink(missing_ok=True)
-        raise
+        report = target_folder / "ReelForge_Error_Report.txt"
+        report.write_text(
+            "ReelForge could not complete the edit.\n"
+            "Your source video has NOT been modified.\n\n"
+            f"Input file: {Path(requested_source).name}\n"
+            f"Type: {Path(requested_source).suffix.lower()}\n"
+            f"Error category: {type(exc).__name__}\n"
+            f"Details: {exc}\n\nFull technical details:\n"
+            f"{traceback.format_exc()}\n\n"
+            "If FFmpeg says 'moov atom not found', the MP4 may be incomplete.\n"
+            "Re-export the source as H.264 MP4 with AAC audio if repair fails.\n",
+            encoding="utf-8", errors="replace")
+        log(f"Saved diagnostic report: {report}")
+        raise RuntimeError(f"{exc}\n\nDiagnostic report saved:\n{report}") from exc
+    finally:
+        recovered.unlink(missing_ok=True)

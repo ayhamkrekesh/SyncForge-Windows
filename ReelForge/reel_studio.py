@@ -272,6 +272,7 @@ class ReelWindow(QMainWindow):
         self.resize(920, 815)
         self.input_path = None
         self.last_output = None
+        self.last_error = ""
         self.thread = None
         self.worker = None
         self._thumb_directory = tempfile.TemporaryDirectory(prefix="reelforge_thumb_")
@@ -302,7 +303,7 @@ class ReelWindow(QMainWindow):
         name = QLabel("REELFORGE")
         name.setObjectName("logo")
         label_box.addWidget(name)
-        edition = QLabel("AUTOMATIC REEL STUDIO  /  V1.0")
+        edition = QLabel("AUTOMATIC REEL STUDIO  /  V1.1")
         edition.setObjectName("version")
         label_box.addWidget(edition)
         brand.addLayout(label_box)
@@ -421,6 +422,11 @@ class ReelWindow(QMainWindow):
         self.open_button.clicked.connect(self.open_result)
         self.open_button.setCursor(Qt.CursorShape.PointingHandCursor)
         activity_layout.addWidget(self.open_button)
+        self.copy_error_button = QPushButton("COPY ERROR DETAILS")
+        self.copy_error_button.setObjectName("secondary")
+        self.copy_error_button.setEnabled(False)
+        self.copy_error_button.clicked.connect(self.copy_error)
+        activity_layout.addWidget(self.copy_error_button)
         main.addWidget(activity)
         disclaimer = QLabel(
             "No uploads. No subscriptions. Automatically edited footage still deserves a quick review "
@@ -431,9 +437,18 @@ class ReelWindow(QMainWindow):
         main.addWidget(disclaimer)
 
     def load_video(self, path: str):
+        # A video with broken duration metadata may still be playable.
+        # Always allow it into the editing worker so remux recovery can run.
+        item = Path(path)
+        if not item.is_file():
+            QMessageBox.warning(self, "Video missing", "The chosen file cannot be found.")
+            return
+        if item.suffix.lower() not in VIDEO_EXT:
+            QMessageBox.warning(self, "Unsupported file", "Choose a supported video file.")
+            return
+        self.input_path = str(item.resolve())
         try:
             info = probe(path)
-            self.input_path = info.path
             label = f"{info.duration:.1f}s  •  {info.width}×{info.height}"
             label += "  •  Source audio detected" if info.has_audio else "  •  Silent footage"
             self.source_info.setText(label)
@@ -451,8 +466,11 @@ class ReelWindow(QMainWindow):
                 pass
             self.drop.show_video(path, preview)
             self.status.setText("Video loaded. Ready to edit.")
-        except (ValueError, RuntimeError) as exc:
-            QMessageBox.warning(self, "Video cannot be opened", str(exc))
+        except Exception as exc:
+            self.drop.show_video(path)
+            self.source_info.setText("Unusual metadata detected — automatic repair available.")
+            self.status.setText("Video selected. ReelForge will attempt metadata repair.")
+            self.logs.appendPlainText(f"Source inspection warning: {exc}")
 
     def select_folder(self):
         result = QFileDialog.getExistingDirectory(self, "Choose output folder", self.output.text())
@@ -471,14 +489,15 @@ class ReelWindow(QMainWindow):
         try:
             binary("ffmpeg")
             binary("ffprobe")
-            if probe(self.input_path).has_audio:
-                bundled_model()
+            bundled_model()
         except Exception as exc:
             QMessageBox.warning(self, "Missing application component", str(exc))
             return
         self.go.setEnabled(False)
         self.drop.pick_button.setEnabled(False)
         self.last_output = None
+        self.last_error = ""
+        self.copy_error_button.setEnabled(False)
         self.open_button.setEnabled(False)
         self.logs.clear()
         self.status.setText("Choosing the best moments...")
@@ -514,16 +533,28 @@ class ReelWindow(QMainWindow):
         self.go.setEnabled(True)
         self.drop.pick_button.setEnabled(True)
         self.open_button.setEnabled(True)
-        QMessageBox.information(self, "ReelForge finished",
+        warnings = report.get("warnings") or []
+        details = (
             "Your reel has been exported successfully.\n\n"
             f"Length: {report['duration']:.1f} seconds\n"
-            f"Captions: {'Yes' if report['captions'] else 'No speech detected'}\n"
+            f"Captions: {'Yes' if report['captions'] else 'No (check speech recognition)'}\n"
             f"Original beat: {'Yes' if report['original_music'] else 'No'}\n\n"
             "Open the finished reel folder to review the video.")
+        if warnings:
+            details += "\n\nReview notices:\n" + "\n".join("- " + str(w) for w in warnings)
+            self.logs.appendPlainText("Warnings: " + "; ".join(map(str, warnings)))
+        QMessageBox.information(self, "ReelForge finished", details)
 
     @Slot(str)
     def failed(self, error: str):
-        self.status.setText("Editing could not finish.")
+        self.last_error = error
+        self.copy_error_button.setEnabled(True)
+        if "Diagnostic report saved:\n" in error:
+            diagnostic_path = error.rsplit("Diagnostic report saved:\n", 1)[-1].strip()
+            if Path(diagnostic_path).is_file():
+                self.last_output = str(Path(diagnostic_path).parent)
+                self.open_button.setEnabled(True)
+        self.status.setText("Editing could not finish — copy error details for support.")
         self.logs.appendPlainText("ERROR: " + error)
         self.go.setEnabled(True)
         self.drop.pick_button.setEnabled(True)
@@ -536,6 +567,11 @@ class ReelWindow(QMainWindow):
         self.worker = None
         if old is not None:
             old.deleteLater()
+
+    def copy_error(self):
+        if self.last_error:
+            QApplication.clipboard().setText(self.last_error)
+            self.logs.appendPlainText("Error details copied to clipboard.")
 
     def open_result(self):
         if self.last_output:
