@@ -16,6 +16,10 @@ services:
         sync: false
       - key: APP_PASSWORD
         sync: false
+      - key: REQUIRE_AUTH
+        value: "1"
+      - key: REQUIRE_AI
+        value: "1"
       - key: REEL_DATA_DIR
         value: /data
       - key: MAX_UPLOAD_MB
