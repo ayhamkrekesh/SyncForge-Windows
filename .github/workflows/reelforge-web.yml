@@ -44,6 +44,8 @@ jobs:
         env:
           PYTHONPATH: ReelForgeWeb
           REEL_DATA_DIR: /tmp/reelforge-website-test
+          REEL_WIDTH: "360"
+          REEL_HEIGHT: "640"
         run: python -m pytest -q ReelForgeWeb/tests
       - name: Build standalone Render Docker image
         run: docker build --pull -f ReelForgeWeb/Dockerfile -t reelforge-web:ci ReelForgeWeb
