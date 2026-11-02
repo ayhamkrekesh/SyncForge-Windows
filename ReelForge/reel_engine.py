@@ -509,7 +509,7 @@ def render(source: Media, cuts: list[Cut], words: list[Word],
     destination.parent.mkdir(parents=True, exist_ok=True)
     cmd = [binary("ffmpeg"), "-y", "-nostdin", "-hide_banner",
            "-loglevel", "error", "-progress", "pipe:1",
-           *inputs, "-filter_complex_script", "filters.txt",
+           *inputs, "-filter_complex", graph,
            "-map", "[outv]", "-map", "[outa]",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
