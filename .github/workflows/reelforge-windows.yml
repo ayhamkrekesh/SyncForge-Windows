@@ -79,7 +79,11 @@ jobs:
           if ($app.ExitCode -ne 0) { throw "EXE dependency check failed: $($app.ExitCode)" }
           $ui = Start-Process -FilePath 'dist/ReelForge/ReelForge.exe' -ArgumentList '--smoke-ui' -Wait -PassThru
           if ($ui.ExitCode -ne 0) { throw "Packaged GUI check failed: $($ui.ExitCode)" }
-          $model = Start-Process -FilePath 'dist/ReelForge/ReelForge.exe' -ArgumentList '--verify-caption-model' -Wait -PassThru
+          $model = Start-Process -FilePath 'dist/ReelForge/ReelForge.exe' -ArgumentList '--verify-caption-model' -PassThru
+          if (-not $model.WaitForExit(90000)) {
+            $model.Kill()
+            throw 'Bundled speech model initialization exceeded 90 seconds'
+          }
           if ($model.ExitCode -ne 0) { throw "Bundled offline speech model check failed: $($model.ExitCode)" }
 
       - name: Upload one-click Windows download
