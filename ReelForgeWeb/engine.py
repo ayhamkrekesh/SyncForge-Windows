@@ -138,9 +138,9 @@ def json_schema():
 
 def ai_plan(project,folder,instruction=None):
     """Send real timestamped video frames plus transcript to an AI editor."""
-    if not os.getenv("OPENAI_API_KEY"):
+    provider = os.getenv("AI_PROVIDER", "openai").lower()
+    if provider == "openai" and not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError("OPENAI_API_KEY is not configured on the server.")
-    from openai import OpenAI
     duration=project["media"]["duration"]
     words=project.get("words",[])
     sampled=words if len(words)<=2600 else words[::math.ceil(len(words)/2600)]
@@ -174,6 +174,12 @@ def ai_plan(project,folder,instruction=None):
         "Select chronological clips unless a later sound bite is a truthful strong hook. "
         "The reel can be further refined via chat; respond with full revised timeline."
     )
+    if provider == "ollama":
+        from local_ai import local_edit_plan
+        return local_edit_plan(system, user, folder, project.get("frames", []), json_schema())
+    if provider != "openai":
+        raise RuntimeError("Unknown AI_PROVIDER: " + provider)
+    from openai import OpenAI
     client=OpenAI(timeout=150,max_retries=1)
     response=client.responses.create(
         model=os.getenv("VISION_MODEL","gpt-4.1-mini"),
