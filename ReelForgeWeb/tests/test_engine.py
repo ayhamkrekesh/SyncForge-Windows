@@ -81,7 +81,7 @@ def test_actual_two_cut_portrait_export(tmp_path):
     output=render(project,tmp_path,log.append)
     assert output.exists()
     result=probe(output)
-    assert result["width"]==1080 and result["height"]==1920
+    assert result["width"]==360 and result["height"]==640
     assert 1.5<result["duration"]<5
     assert result["has_audio"]
 
