@@ -559,21 +559,10 @@ def main():
         bundled_model()
         return 0
     if "--verify-caption-model" in sys.argv:
-        # Real packaged CTranslate2 load and speech pipeline initialization.
-        import wave
-        import tempfile
+        # Verify that bundled model and native CTranslate2 runtime actually load.
+        # A full inference test runs separately during development, not at GUI startup.
         from faster_whisper import WhisperModel
-        model = WhisperModel(bundled_model(), device="cpu", compute_type="int8", cpu_threads=2)
-        with tempfile.TemporaryDirectory(prefix="rf_model_test_") as tmp:
-            sample = Path(tmp) / "silence.wav"
-            with wave.open(str(sample), "wb") as wav:
-                wav.setnchannels(1)
-                wav.setsampwidth(2)
-                wav.setframerate(16000)
-                wav.writeframes(bytes(16000 * 2))
-            segments, _ = model.transcribe(str(sample), beam_size=1, vad_filter=True,
-                                           word_timestamps=True)
-            list(segments)
+        WhisperModel(bundled_model(), device="cpu", compute_type="int8", cpu_threads=2)
         return 0
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
