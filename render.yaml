@@ -25,6 +25,6 @@ services:
       - key: MAX_UPLOAD_MB
         value: "450"
       - key: WHISPER_MODEL
-        value: base
+        value: /opt/models/whisper-base
       - key: VISION_MODEL
         value: gpt-4.1-mini

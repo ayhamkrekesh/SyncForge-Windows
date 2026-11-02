@@ -287,5 +287,43 @@ def render_project(pid:str):
     return {"status":"rendering"}
 
 
+@app.delete("/api/projects/{pid}")
+def delete_project(pid: str):
+    """Permanently delete a user's files, subtitles, timeline and render files."""
+    import shutil
+    folder = workdir(pid)
+    with LOCK:
+        data = load(folder)
+        if data.get("status") in ("analyzing", "revising", "rendering"):
+            raise HTTPException(409, "Finish the current job before deleting this project.")
+        shutil.rmtree(folder)
+    return {"deleted": True}
+
+
+@app.on_event("startup")
+def recover_interrupted_jobs():
+    """Recover after a Render deployment; do not leave edit jobs stuck forever."""
+    for folder in BASE.iterdir():
+        if not folder.is_dir() or not (folder / "project.json").is_file():
+            continue
+        try:
+            project = load(folder)
+            state = project.get("status")
+            if state == "analyzing":
+                log_change(folder, "Server restarted; resuming analysis.")
+                POOL.submit(process, folder)
+            elif state == "rendering":
+                log_change(folder, "Server restarted; resuming reel export.")
+                POOL.submit(do_render, folder)
+            elif state == "revising":
+                # We deliberately don't persist AI chat instructions on disk.
+                # Preserve the previous edit and ask the user to repeat the request.
+                log_change(folder, "AI revision was interrupted by server restart.",
+                           status="ready",
+                           error="Revision interrupted by restart. Repeat your edit request.")
+        except Exception:
+            continue
+
+
 # Serve React-free, static HTML/JS editor. No frontend build system required.
 app.mount("/",StaticFiles(directory=str(ASSETS),html=True),name="studio")
