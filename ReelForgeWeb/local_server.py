@@ -43,7 +43,6 @@ def setup_local_paths():
 
 def diagnostics():
     import shutil
-    import requests
     import subprocess
     from local_ai import status
     for name in ("ffmpeg", "ffprobe"):
