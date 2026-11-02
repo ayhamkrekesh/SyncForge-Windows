@@ -21,10 +21,14 @@ from engine import probe, recognize, cues_from_words, sample_frames, ai_plan, va
 
 BASE=Path(os.getenv("REEL_DATA_DIR","/data" if Path("/data").exists() else "./data")).resolve()
 BASE.mkdir(parents=True,exist_ok=True)
+if os.getenv("REQUIRE_AUTH")=="1" and not os.getenv("APP_PASSWORD"):
+    raise RuntimeError("APP_PASSWORD must be configured for the public website.")
+if os.getenv("REQUIRE_AI")=="1" and not os.getenv("OPENAI_API_KEY"):
+    raise RuntimeError("OPENAI_API_KEY must be configured for AI editing.")
 ASSETS=Path(__file__).parent/"static"
 MAX_BYTES=int(os.getenv("MAX_UPLOAD_MB","450"))*1024*1024
 TYPES={".mp4",".mov",".mkv",".webm",".mxf",".avi",".mts",".m2ts"}
-POOL=ThreadPoolExecutor(max_workers=2,thread_name_prefix="reelforge")
+POOL=ThreadPoolExecutor(max_workers=1,thread_name_prefix="reelforge")
 LOCK=threading.RLock()
 app=FastAPI(title="ReelForge AI Studio",docs_url=None,redoc_url=None)
 
