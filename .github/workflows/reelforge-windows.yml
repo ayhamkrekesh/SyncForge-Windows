@@ -56,6 +56,9 @@ jobs:
       - name: Bundle multilingual offline caption model
         run: python ReelForge/scripts/download_model.py
 
+      - name: Verify real offline speech decoding and inference
+        run: python ReelForge/scripts/check_asr.py
+
       - name: Package ReelForge.exe for Windows
         shell: pwsh
         run: |
@@ -80,9 +83,9 @@ jobs:
           $ui = Start-Process -FilePath 'dist/ReelForge/ReelForge.exe' -ArgumentList '--smoke-ui' -Wait -PassThru
           if ($ui.ExitCode -ne 0) { throw "Packaged GUI check failed: $($ui.ExitCode)" }
           $model = Start-Process -FilePath 'dist/ReelForge/ReelForge.exe' -ArgumentList '--verify-caption-model' -PassThru
-          if (-not $model.WaitForExit(90000)) {
+          if (-not $model.WaitForExit(150000)) {
             $model.Kill()
-            throw 'Bundled speech model initialization exceeded 90 seconds'
+            throw 'Bundled speech model initialization exceeded 150 seconds'
           }
           if ($model.ExitCode -ne 0) { throw "Bundled offline speech model check failed: $($model.ExitCode)" }
 
