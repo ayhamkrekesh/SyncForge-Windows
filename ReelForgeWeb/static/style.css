@@ -1,3 +1,4 @@
+[hidden]{display:none!important}
 :root{--bg:#07101c;--panel:#101d2d;--panel2:#132439;--line:#293b50;--line2:#385066;--accent:#6bf0d0;--sky:#74a2ff;--txt:#eaf4ff;--mute:#8ca2b8;--r:20px;font-family:Inter,"Segoe UI",system-ui,sans-serif;color-scheme:dark}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;min-height:100vh;background:linear-gradient(140deg,#07101c,#0a1524 65%,#081426);color:var(--txt);overflow-x:hidden;font-size:14px}
 .glow{position:absolute;z-index:-1;pointer-events:none;width:800px;height:700px;border-radius:50%;filter:blur(105px);opacity:.15}.glow-a{top:-400px;left:30%;background:#5e56df}.glow-b{top:440px;left:-400px;background:#0dbbb0}
